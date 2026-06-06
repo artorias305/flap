@@ -144,9 +144,168 @@ check_collision :: proc(bird: Bird, pipes: [dynamic]PipePair) -> bool {
 	return false
 }
 
+GameState :: enum {
+	MENU,
+	PLAYING,
+	PAUSED,
+	GAME_OVER,
+}
+
+MenuType :: enum {
+	MAIN,
+	PAUSE,
+	GAME_OVER,
+}
+
+Menu :: struct {
+	options:  []cstring,
+	selected: int,
+	type:     MenuType,
+	visible:  bool,
+}
+
+MAIN_MENU_OPTIONS := []cstring{"Start Game", "Quit"}
+PAUSE_MENU_OPTIONS := []cstring{"Continue", "Restart", "Main Menu", "Quit"}
+GAME_OVER_MENU_OPTIONS := []cstring{"Restart", "Main Menu", "Quit"}
+
+create_menu :: proc(type: MenuType, selected: int = 0) -> Menu {
+	options: []cstring
+	switch type {
+	case .MAIN:
+		options = MAIN_MENU_OPTIONS
+	case .PAUSE:
+		options = PAUSE_MENU_OPTIONS
+	case .GAME_OVER:
+		options = GAME_OVER_MENU_OPTIONS
+	}
+	return Menu{options, selected, type, true}
+}
+
+draw_menu :: proc(menu: Menu, final_score: int = 0) {
+	overlay_color := raylib.Fade(raylib.BLACK, 0.5)
+	raylib.DrawRectangle(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, overlay_color)
+
+	title: cstring
+	switch menu.type {
+	case .MAIN:
+		title = "FLAP"
+	case .PAUSE:
+		title = "PAUSED"
+	case .GAME_OVER:
+		title = "GAME OVER"
+	}
+
+	title_y := i32(WINDOW_HEIGHT / 4)
+	raylib.DrawText(
+		title,
+		WINDOW_WIDTH / 2 - raylib.MeasureText(title, 50) / 2,
+		title_y,
+		50,
+		raylib.WHITE,
+	)
+
+	if menu.type == .GAME_OVER {
+		score_text := raylib.TextFormat("Final Score: %d", final_score)
+		raylib.DrawText(
+			score_text,
+			WINDOW_WIDTH / 2 - raylib.MeasureText(score_text, 40) / 2,
+			title_y + 70,
+			40,
+			raylib.GOLD,
+		)
+	}
+
+	start_y := WINDOW_HEIGHT / 2
+	for option, i in menu.options {
+		color := raylib.YELLOW if i == menu.selected else raylib.WHITE
+		x := WINDOW_WIDTH / 2 - raylib.MeasureText(option, 30) / 2
+		y := start_y + (i * 50)
+		raylib.DrawText(option, x, i32(y), 30, color)
+	}
+}
+
+handle_menu_input :: proc(
+	menu: ^Menu,
+	game_state: ^GameState,
+	bird: ^Bird,
+	pipes: ^[dynamic]PipePair,
+	score: ^int,
+	spawn_timer: ^f32,
+) -> bool {
+	if raylib.IsKeyPressed(raylib.KeyboardKey.UP) && menu.selected > 0 {
+		menu.selected -= 1
+	}
+	if raylib.IsKeyPressed(raylib.KeyboardKey.DOWN) && menu.selected < len(menu.options) - 1 {
+		menu.selected += 1
+	}
+
+	if raylib.IsKeyPressed(raylib.KeyboardKey.ENTER) {
+		switch menu.type {
+		case .MAIN:
+			switch menu.selected {
+			case 0:
+				game_state^ = .PLAYING
+				menu.visible = false
+				return true
+			case 1:
+				raylib.CloseWindow()
+			}
+		case .PAUSE:
+			switch menu.selected {
+			case 0:
+				game_state^ = .PLAYING
+				menu.visible = false
+				return true
+			case 1:
+				game_state^ = .PLAYING
+				bird^ = create_bird()
+				clear(pipes)
+				score^ = 0
+				spawn_timer^ = 0
+				menu.visible = false
+				return true
+			case 2:
+				game_state^ = .MENU
+				bird^ = create_bird()
+				clear(pipes)
+				score^ = 0
+				spawn_timer^ = 0
+				menu.visible = false
+				return true
+			case 3:
+				raylib.CloseWindow()
+			}
+		case .GAME_OVER:
+			switch menu.selected {
+			case 0:
+				game_state^ = .PLAYING
+				bird^ = create_bird()
+				clear(pipes)
+				score^ = 0
+				spawn_timer^ = 0
+				menu.visible = false
+				return true
+			case 1:
+				game_state^ = .MENU
+				bird^ = create_bird()
+				clear(pipes)
+				score^ = 0
+				spawn_timer^ = 0
+				menu.visible = false
+				return true
+			case 2:
+				raylib.CloseWindow()
+			}
+		}
+	}
+	return false
+}
+
 main :: proc() {
 	raylib.InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, TITLE)
 	defer raylib.CloseWindow()
+
+	raylib.SetExitKey(raylib.KeyboardKey.KEY_NULL)
 
 	pipes: [dynamic]PipePair
 	defer delete(pipes)
@@ -155,53 +314,75 @@ main :: proc() {
 	spawn_timer: f32 = 0
 	score: int = 0
 
+	game_state: GameState = .MENU
+	current_menu := create_menu(.MAIN)
+	final_score := 0
+
 	raylib.SetTargetFPS(60)
 
 	for !raylib.WindowShouldClose() {
 		dt := raylib.GetFrameTime()
 
-		if raylib.IsKeyPressed(raylib.KeyboardKey.SPACE) {
-			bird.vel_y = FLAP_VEL
+		if game_state == .PLAYING {
+			if raylib.IsKeyPressed(raylib.KeyboardKey.SPACE) {
+				bird.vel_y = FLAP_VEL
+			}
+			if raylib.IsKeyPressed(raylib.KeyboardKey.ESCAPE) {
+				game_state = .PAUSED
+				current_menu = create_menu(.PAUSE)
+			}
+		} else {
+			handle_menu_input(&current_menu, &game_state, &bird, &pipes, &score, &spawn_timer)
 		}
 
-		update_bird(&bird, dt)
+		if game_state == .PLAYING {
+			update_bird(&bird, dt)
 
-		if check_collision(bird, pipes) {
-			bird = create_bird()
-			clear(&pipes)
-			spawn_timer = 0
-			score = 0
-		}
-
-		spawn_timer += dt
-		if spawn_timer >= PIPE_SPAWN_INTERVAL {
-			append(&pipes, create_pipe_pair())
-			spawn_timer = 0
-		}
-
-		for i := len(pipes) - 1; i >= 0; i -= 1 {
-			update_pipe(&pipes[i].top, dt)
-			update_pipe(&pipes[i].bottom, dt)
-
-			if pipes[i].top.pos_x + f32(PIPE_WIDTH) < 0 {
-				unordered_remove(&pipes, i)
+			if check_collision(bird, pipes) {
+				game_state = .GAME_OVER
+				final_score = score
+				current_menu = create_menu(.GAME_OVER)
 			}
 
-			if !pipes[i].scored && pipes[i].top.pos_x + f32(PIPE_WIDTH) < bird.pos_x {
-				score += 1
-				pipes[i].scored = true
+			spawn_timer += dt
+			if spawn_timer >= PIPE_SPAWN_INTERVAL {
+				append(&pipes, create_pipe_pair())
+				spawn_timer = 0
+			}
+
+			for i := len(pipes) - 1; i >= 0; i -= 1 {
+				update_pipe(&pipes[i].top, dt)
+				update_pipe(&pipes[i].bottom, dt)
+
+				if pipes[i].top.pos_x + f32(PIPE_WIDTH) < 0 {
+					unordered_remove(&pipes, i)
+				}
+
+				if !pipes[i].scored && pipes[i].top.pos_x + f32(PIPE_WIDTH) < bird.pos_x {
+					score += 1
+					pipes[i].scored = true
+				}
 			}
 		}
 
 		raylib.BeginDrawing()
 		raylib.ClearBackground(raylib.BLACK)
 
-		for pair in pipes {
-			draw_pipe(pair.top)
-			draw_pipe(pair.bottom)
+		if game_state != .MENU {
+			for pair in pipes {
+				draw_pipe(pair.top)
+				draw_pipe(pair.bottom)
+			}
+			draw_bird(bird)
 		}
-		draw_bird(bird)
-		raylib.DrawText(raylib.TextFormat("Score: %d", score), 20, 20, 30, raylib.WHITE)
+
+		switch game_state {
+		case .PLAYING:
+			raylib.DrawText(raylib.TextFormat("Score: %d", score), 20, 20, 30, raylib.WHITE)
+		case .MENU, .PAUSED, .GAME_OVER:
+			final_score_to_show := final_score if game_state == .GAME_OVER else score
+			draw_menu(current_menu, final_score_to_show)
+		}
 
 		raylib.EndDrawing()
 	}
