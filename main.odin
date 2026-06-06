@@ -153,6 +153,7 @@ main :: proc() {
 
 	bird := create_bird()
 	spawn_timer: f32 = 0
+	score: int = 0
 
 	raylib.SetTargetFPS(60)
 
@@ -169,6 +170,7 @@ main :: proc() {
 			bird = create_bird()
 			clear(&pipes)
 			spawn_timer = 0
+			score = 0
 		}
 
 		spawn_timer += dt
@@ -184,6 +186,11 @@ main :: proc() {
 			if pipes[i].top.pos_x + f32(PIPE_WIDTH) < 0 {
 				unordered_remove(&pipes, i)
 			}
+
+			if !pipes[i].scored && pipes[i].top.pos_x + f32(PIPE_WIDTH) < bird.pos_x {
+				score += 1
+				pipes[i].scored = true
+			}
 		}
 
 		raylib.BeginDrawing()
@@ -194,6 +201,7 @@ main :: proc() {
 			draw_pipe(pair.bottom)
 		}
 		draw_bird(bird)
+		raylib.DrawText(raylib.TextFormat("Score: %d", score), 20, 20, 30, raylib.WHITE)
 
 		raylib.EndDrawing()
 	}
