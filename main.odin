@@ -14,6 +14,10 @@ PIPE_WIDTH :: 80
 PIPE_SPEED :: 150
 PIPE_SPAWN_INTERVAL :: 2.0
 
+GRAVITY :: 800 // pixels/sec^2
+FLAP_VEL :: -350 // pixels/sec (up)
+BIRD_SIZE :: 30
+
 Pipe :: struct {
 	width:  c.int,
 	height: c.int,
@@ -28,6 +32,14 @@ PipePair :: struct {
 	scored: bool,
 }
 
+Bird :: struct {
+	pos_x: f32,
+	pos_y: f32,
+	vel_y: f32,
+	size:  c.int,
+	color: raylib.Color,
+}
+
 draw_pipe :: proc(pipe: Pipe) {
 	raylib.DrawRectangle(i32(pipe.pos_x), i32(pipe.pos_y), pipe.width, pipe.height, pipe.color)
 }
@@ -40,6 +52,16 @@ create_pipe :: proc(
 	color: raylib.Color = raylib.RAYWHITE,
 ) -> Pipe {
 	return Pipe{width, height, pos_x, pos_y, color}
+}
+
+create_bird :: proc() -> Bird {
+	return Bird {
+		pos_x = f32(WINDOW_WIDTH) / 4,
+		pos_y = f32(WINDOW_HEIGHT) / 2,
+		vel_y = 0,
+		size = BIRD_SIZE,
+		color = raylib.YELLOW,
+	}
 }
 
 create_pipe_pair :: proc() -> PipePair {
@@ -74,9 +96,20 @@ update_pipe :: proc(pipe: ^Pipe, dt: f32) {
 	pipe.pos_x -= PIPE_SPEED * dt
 }
 
+update_bird :: proc(bird: ^Bird, dt: f32) {
+	bird.vel_y += GRAVITY * dt
+	bird.pos_y += bird.vel_y * dt
+}
+
+draw_bird :: proc(bird: Bird) {
+	raylib.DrawRectangle(i32(bird.pos_x), i32(bird.pos_y), bird.size, bird.size, bird.color)
+}
+
 main :: proc() {
 	raylib.InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, TITLE)
 	defer raylib.CloseWindow()
+
+	bird := create_bird()
 
 	pipes: [dynamic]PipePair
 	defer delete(pipes)
@@ -94,7 +127,7 @@ main :: proc() {
 			append(&pipes, create_pipe_pair())
 		}
 
-		for i := len(pipes) - 1; i >= 0; i-=1 {
+		for i := len(pipes) - 1; i >= 0; i -= 1 {
 			update_pipe(&pipes[i].top, dt)
 			update_pipe(&pipes[i].bottom, dt)
 
@@ -103,6 +136,12 @@ main :: proc() {
 			}
 		}
 
+		if raylib.IsKeyPressed(raylib.KeyboardKey.SPACE) {
+			bird.vel_y = FLAP_VEL
+		}
+
+		update_bird(&bird, dt)
+
 		raylib.BeginDrawing()
 		raylib.ClearBackground(raylib.BLACK)
 
@@ -110,6 +149,8 @@ main :: proc() {
 			draw_pipe(pair.top)
 			draw_pipe(pair.bottom)
 		}
+
+		draw_bird(bird)
 
 		raylib.EndDrawing()
 	}
